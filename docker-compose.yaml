@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # Service Database PostgreSQL
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: lms_db
+      POSTGRES_USER: lms_user
+      POSTGRES_PASSWORD: lms_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # Service Aplikasi Django
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./code:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+      - mongodb
+      - rabbitmq
+
+  # Service Redis untuk Caching
+  redis:
+    image: redis:alpine
+    restart: always
+    ports:
+      - "6379:6379"
+
+  # Service MongoDB untuk Activity Logs & Analytics
+  mongodb:
+    image: mongo:latest
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  # Service RabbitMQ sebagai Message Broker untuk Celery
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: always
+    ports:
+      - "5672:5672"
+      - "15672:15672" # Management UI RabbitMQ
+
+  # Service Celery Worker
+  celery-worker:
+    build: .
+    # Ganti 'lms' dengan nama folder project utama Anda jika berbeda
+    command: celery -A lms worker -l info
+    volumes:
+      - ./code:/code
+    depends_on:
+      - rabbitmq
+      - db
+      - redis
+
+  # Service Celery Beat (Scheduler)
+  celery-beat:
+    build: .
+    # Ganti 'lms' dengan nama folder project utama Anda jika berbeda
+    command: celery -A lms beat -l info
+    volumes:
+      - ./code:/code
+    depends_on:
+      - rabbitmq
+      - db
+      - redis
+
+  # Service Flower untuk monitoring Celery
+  flower:
+    restart: always
+    build: .
+    command: celery -A lms flower --port=5555
+    ports:
+      - "5555:5555"
+    volumes:
+      - ./code:/code
+    depends_on:
+      - rabbitmq
+      - celery-worker
+
+volumes:
+  postgres_data:
+  mongodb_data:
